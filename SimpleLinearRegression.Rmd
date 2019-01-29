@@ -1,0 +1,798 @@
+---
+title: "Linear Regression - Simple Used Case using R "
+author: "Sohamjit Mukherjee"
+date: "13 December 2018"
+output: 
+pdf_document :
+latex_engine: xelatex
+mainfont: LiberationSerif
+sansfont: LiberationSans
+monofont: LiberationMono
+runtime : shiny
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This R Markdown document comprises of a dataset that contains pollution data along with the weather data collected on an hourly basis, from Madrid, between 2011 and 2016. However, this dataset was analyzed on a daily basis. Three main steps were conducted: 
+1.	Prepare the data in a proper format 
+2.	Analyze the data 
+3.	Visualize the data 
+
+
+Remove all the data from the workspace
+
+```{r}
+
+rm(list=ls())
+
+```
+
+Install all the packages that are being used in the project
+
+```{r}
+
+#install.packages("stringr")
+#install.packages("lubridate")
+#install.packages("data.table")
+#install.packages("reshape2")
+#install.packages("xlsx")
+#install.packages("ggplot2")
+#install.packages("gridExtra")
+#install.packages("corrplot")
+#install.packages("d3heatmap")
+#install.packages("dygraphs")
+#install.packages("shiny")
+
+#library(stringr)
+#library(lubridate)
+#library(data.table)
+#library(reshape2)
+#library(xlsx)
+#library(ggplot2)
+#library(gridExtra)
+#library(corrplot)
+#library(d3heatmap)
+#library(dygraphs)
+#library(shiny)
+
+```
+
+#######################################################################################################
+## Data Set Creation ##
+#######################################################################################################
+
+Get the name of all the files. 
+This function will produce a character vector of the names of files.
+We have 72 .csv files containing hourly data.
+
+```{r}
+
+File = list.files(pattern = ".csv")
+
+```
+
+Creating a list comprising of the .csv files which contains the hourly data where each and every file is a data frame. 
+
+```{r}
+
+Data = lapply(File, read.table, header = T , sep =",")
+
+```
+
+Extract the year and month name from the file name and convert it into YYYY-MM-DD format.
+This will give us the starting date of the month for which the file contains data.
+By default all the days will be starting day of the month i.e. 01
+
+```{r}
+
+library(lubridate)
+library(stringr)
+ExtractedTime =    ymd(paste(paste0(20,str_extract(File, '\\d.'))
+                                 ,str_extract(File, '[^_]+$'),sep = "-"),'%Y%m',truncated = 2)
+head(ExtractedTime , 2)
+
+```
+
+The year and month extracted in the previous step will now be appended to every file.
+The output is a List of 72 Data Frames.
+As mentioned above the days will be starting day of the month.
+This will be modified in the corresponding steps.
+
+```{r}
+
+for (i in 1 : length(Data))
+
+{
+  Data[[i]] = cbind(Data[[i]],
+                     ExtractedTime[i])
+  
+}
+
+```
+
+Converting the list of 72 data frame into a single data frame.
+
+```{r}
+
+MergedData = do.call("rbind", Data) 
+
+```
+
+Assigning column names for the above Data Frame.
+
+```{r}
+
+colnames(MergedData)[c(1,2,3,4,5,6)] = c("Day", "Hour", "Station", "Parameter", "Value" , "MonthStartDate")
+
+```
+
+Converting the Data Frame to Data Table.
+
+```{r}
+library(data.table)
+MergedData = as.data.table(MergedData)
+
+```
+
+Creating an extra column to show date of the format year-month-day.
+This is done by looping through each day in the rows.
+
+```{r}
+
+for ( i in 1 : 31)
+  
+{
+  Final_MergedData = MergedData[ Day == i , 
+                            CalendarDate := as.Date(paste0(str_sub(as.character.Date(MonthStartDate),1,8),i))]
+
+}
+
+
+```
+
+Transpose the parameter column.
+This will convert the parameters from being in the rows to columns.
+
+```{r}
+
+Final_MergedData = dcast(Final_MergedData, Day + Hour + MonthStartDate + CalendarDate + Station~Parameter
+                         ,value.var = "Value")
+
+```
+
+Assign proper column names based on the parameter name.
+
+```{r}
+
+colnames(Final_MergedData)[c(1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17)] = 
+  c("Day", "Hour", "MonthStartDate" , "CalendarDate", "Station"
+    , "SO2", "CO", "NO" , "NO2" , "PM2.5", "PM 10" ,"O3"
+    , "TOL" , "BEN" ,"EBE" , "TCH" , "NMHC")
+
+```
+
+Roll up the hourly level data to day level data by using mean, min and max.
+So for each parameter column we will now have 3 columns.
+
+```{r}
+
+Final_MergedData =as.data.table(Final_MergedData)
+
+Final_MergedData = Final_MergedData[, c(lapply(.SD, mean , na.rm = TRUE), 
+                                        lapply(.SD, min  , na.rm = TRUE),
+                                        lapply(.SD, max  , na.rm = TRUE)), 
+                                        by = CalendarDate , 
+                                        .SDcols=  c("SO2", "CO", "NO" , "NO2" , "PM2.5", 
+                                        "PM 10" ,"O3","TOL" ,
+                                        "BEN" ,"EBE" , "TCH" , "NMHC")]
+
+```
+
+Assign column names.
+
+```{r}
+
+colnames(Final_MergedData)[c(1:ncol(Final_MergedData))] = 
+  c("CalendarDate", "SO2_Mean", "CO_Mean", "NO_Mean" , "NO2_Mean" , "PM2.5_Mean", 
+    "PM_10_Mean" ,"O3_Mean", "TOL_Mean" , "BEN_Mean" ,"EBE_Mean" , "TCH_Mean" , "NMHC_Mean",
+    "SO2_Min", "CO_Min", "NO_Min" , "NO2_Min" , "PM2.5_Min", 
+    "PM_10_Min" ,"O3_Min", "TOL_Min" , "BEN_Min" ,"EBE_Min" , "TCH_Min" , "NMHC_Min",
+    "SO2_Max", "CO_Max", "NO_Max" , "NO2_Max" , "PM2.5_Max", 
+    "PM_10_Max" ,"O3_Max", "TOL_Max" , "BEN_Max" ,"EBE_Max" , "TCH_Max" , "NMHC_Max")
+
+head(Final_MergedData,2)
+```
+
+Read the weather file and convert it into a data table.
+We will first achieve this by using the xlsx package.
+Further, we also change the the names of the columns accordingly.
+
+```{r}
+library(xlsx)
+Weather = read.xlsx("weather.xlsx",sheetName = 'data')
+Weather = as.data.table(Weather)
+names(Weather) = c("CalendarDate" , "Temp_Mean" , "Temp_Max" ,"Temp_Min" , 
+                   "Precipitation" , "Humidity" ,"WindSpeed_Mean")
+
+str(Weather)
+```
+
+Merge/Join both the files to create the Final Output file.
+
+```{r}
+
+Final_Output =merge(Final_MergedData , Weather , by="CalendarDate")
+
+```
+
+######################################################################################################
+## Exploratory Data Analysis ##
+######################################################################################################
+
+Subset the required data (change according to the analysis).
+
+```{r}
+
+DataAnalysis = as.data.table(Final_Output[ ,c("CalendarDate", "SO2_Mean" , "CO_Mean", "NO_Mean",
+                                             "NO2_Mean" , "PM_10_Mean",   "O3_Mean","TOL_Mean","BEN_Mean","PM2.5_Mean",
+                                             "TCH_Mean","NMHC_Mean",
+                                             "Temp_Mean" , 
+                                             "Precipitation", "Humidity", "WindSpeed_Mean")]
+                                        )
+
+```
+
+Create boxplots of each and every variable except 'Calendar Date' in a loop.
+The outputs are saved as png image in disk.
+This is done to study the spread and outliers in each and every variable.
+
+
+```{r}
+library(ggplot2)
+for(i in names(DataAnalysis[,!c("CalendarDate")])) 
+  {
+    png(paste("Box",i, "png", sep = "."), width = 600, height = 600)
+    print(ggplot(DataAnalysis) + geom_boxplot(aes_string(y=i, x = 0), na.rm=TRUE) + ggtitle(paste("BoxPlot",i,sep="-")) + scale_color_grey() +
+            theme_classic() +
+          scale_x_discrete(breaks=NULL) + xlab(NULL) + theme_bw())
+  dev.off()
+}
+
+```
+
+Create side by side boxplot of the variables used in the equation
+
+```{r}
+
+library(gridExtra)
+library(ggplot2)
+plot1 = ggplot(DataAnalysis, aes(x =CalendarDate, y =SO2_Mean)) +
+               geom_boxplot(outlier.colour="red", outlier.shape=6,
+               outlier.size=1 , fill="purple2", color="black") +
+               ggtitle(paste("BoxPlot","SO2 Mean",sep="-")) +
+               scale_color_grey() +
+               theme_classic() +
+               theme(axis.title.x=element_blank(),
+               axis.text.x=element_blank())
+
+plot2 = ggplot(DataAnalysis, aes(x =format(DataAnalysis$CalendarDate, "%Y"), y =SO2_Mean)) +
+  geom_boxplot(outlier.colour="red", outlier.shape=6,
+               outlier.size=1 , fill="purple2", color="black") +
+  ggtitle(paste("BoxPlot","SO2 Mean",sep="-")) +
+  xlab("Year") +
+  scale_color_grey() +
+  theme_classic()
+
+
+grid.arrange(plot1, plot2, ncol=2)
+
+plot1 = ggplot(DataAnalysis, aes(x =CalendarDate, y =Humidity)) +
+               geom_boxplot(outlier.colour="red", outlier.shape=6,
+               outlier.size=1 , fill="purple2", color="black") +
+               ggtitle(paste("BoxPlot","Humidity Mean",sep="-")) +
+               scale_color_grey() +
+               theme_classic() +
+               theme(axis.title.x=element_blank(),
+               axis.text.x=element_blank())
+
+plot2 = ggplot(DataAnalysis, aes(x =format(DataAnalysis$CalendarDate, "%Y"), y =Humidity)) +
+  geom_boxplot(outlier.colour="red", outlier.shape=6,
+               outlier.size=1 , fill="purple2", color="black") +
+  ggtitle(paste("BoxPlot","Humidity Mean",sep="-")) +
+  xlab("Year") +
+  scale_color_grey() +
+  theme_classic()
+
+
+grid.arrange(plot1, plot2, ncol=2)
+
+plot1 = ggplot(DataAnalysis, aes(x =CalendarDate, y =WindSpeed_Mean)) +
+               geom_boxplot(outlier.colour="red", outlier.shape=6,
+               outlier.size=1 , fill="cyan2", color="black") +
+               ggtitle(paste("BoxPlot","WindSpeed Mean",sep="-")) +
+               scale_color_grey() +
+               theme_classic() +
+               theme(axis.title.x=element_blank(),
+               axis.text.x=element_blank())
+
+plot2 = ggplot(DataAnalysis, aes(x =format(DataAnalysis$CalendarDate, "%Y"), y =WindSpeed_Mean)) +
+  geom_boxplot(outlier.colour="red", outlier.shape=6,
+               outlier.size=1 , fill="cyan2", color="black") +
+  ggtitle(paste("BoxPlot","WindSpeed Mean",sep="-")) +
+  xlab("Year") +
+  scale_color_grey() +
+  theme_classic()
+
+
+grid.arrange(plot1, plot2, ncol=2)
+
+plot1 = ggplot(DataAnalysis, aes(x =CalendarDate, y =O3_Mean)) +
+               geom_boxplot(outlier.colour="red", outlier.shape=6,
+               outlier.size=1 , fill="cyan2", color="black") +
+               ggtitle(paste("BoxPlot","O3 Mean",sep="-")) +
+               scale_color_grey() +
+               theme_classic() +
+               theme(axis.title.x=element_blank(),
+               axis.text.x=element_blank())
+
+plot2 = ggplot(DataAnalysis, aes(x =format(DataAnalysis$CalendarDate, "%Y"), y =O3_Mean)) +
+  geom_boxplot(outlier.colour="red", outlier.shape=6,
+               outlier.size=1 , fill="cyan2", color="black") +
+  ggtitle(paste("BoxPlot","O3 Mean",sep="-")) +
+  xlab("Year") +
+  scale_color_grey() +
+  theme_classic()
+
+
+grid.arrange(plot1, plot2, ncol=2)
+
+plot1 = ggplot(DataAnalysis, aes(x =CalendarDate, y =PM2.5_Mean)) +
+               geom_boxplot(outlier.colour="red", outlier.shape=6,
+               outlier.size=1 , fill="cyan2", color="black") +
+               ggtitle(paste("BoxPlot","PM2.5 Mean",sep="-")) +
+               scale_color_grey() +
+               theme_classic() +
+               theme(axis.title.x=element_blank(),
+               axis.text.x=element_blank())
+
+plot2 = ggplot(DataAnalysis, aes(x =format(DataAnalysis$CalendarDate, "%Y"), y =PM2.5_Mean)) +
+  geom_boxplot(outlier.colour="red", outlier.shape=6,
+               outlier.size=1 , fill="cyan2", color="black") +
+  ggtitle(paste("BoxPlot","PM2.5 Mean",sep="-")) +
+  xlab("Year") +
+  scale_color_grey() +
+  theme_classic()
+
+
+grid.arrange(plot1, plot2, ncol=2)
+
+plot1 = ggplot(DataAnalysis, aes(x =CalendarDate, y =CO_Mean)) +
+               geom_boxplot(outlier.colour="red", outlier.shape=6,
+               outlier.size=1 , fill="cyan2", color="black") +
+               ggtitle(paste("BoxPlot","CO Mean",sep="-")) +
+               scale_color_grey() +
+               theme_classic() +
+               theme(axis.title.x=element_blank(),
+               axis.text.x=element_blank())
+
+plot2 = ggplot(DataAnalysis, aes(x =format(DataAnalysis$CalendarDate, "%Y"), y =CO_Mean)) +
+  geom_boxplot(outlier.colour="red", outlier.shape=6,
+               outlier.size=1 , fill="cyan2", color="black") +
+  ggtitle(paste("BoxPlot","CO Mean",sep="-")) +
+  xlab("Year") +
+  scale_color_grey() +
+  theme_classic()
+
+
+grid.arrange(plot1, plot2, ncol=2)
+
+```
+
+Draw a Correlation Matrix of each and every variables in the Data Table.
+The column calendar date is discarded from the Correlation Matrix as it is not a numeric column.
+
+```{r, fig.width=14, fig.height=13}
+
+library(corrplot)
+Correlatation_Matrix = cor(DataAnalysis[,!c("CalendarDate")])
+
+corrplot.mixed(Correlatation_Matrix, lower="number", upper="circle", diag = "l", tl.pos = "lt")
+
+corrplot(
+         Correlatation_Matrix, 
+         order = "AOE", 
+         method = "color" , 
+         title ="Correlation Matrix",
+         uppCI.mat = T,
+         type = "upper",
+         col=colorRampPalette(c("red2","green2","red2"))((200))
+         )
+
+```
+
+Re-visualization of the Correlation Matrix which is interactive.
+
+```{r, fig.width=10, fig.height=11}
+
+d3heatmap::d3heatmap(cor(DataAnalysis[, sapply(DataAnalysis, is.numeric), with=F]))
+
+```
+
+Create time series chart of all the variables over time
+
+
+```{r, fig.width=10, fig.height=10}
+
+
+library(dygraphs)
+dygraph(DataAnalysis[,c("CalendarDate",
+                         "SO2_Mean" , "O3_Mean" , "PM2.5_Mean" , "CO_Mean"
+                        , "WindSpeed_Mean" , "Humidity")]
+        , main = "Distribution of Polutants Over Days") %>%
+  dyOptions(colors = RColorBrewer::brewer.pal(10, "Set1")) %>%
+  dyAxis("y", label = "Values")  %>%
+  dyAxis("x", label = "Calendar Date")  %>%
+  dyLegend(width=700) %>%
+dyRangeSelector()
+
+```
+
+Below is a R Shiny application graph, which plots interactive graphs between two pollutant variables.
+The user has the flexibility of changing the dates and pollutants according to the analysis.
+
+```{r, fig.width=14, fig.height=12}
+
+
+library(shiny)
+
+# Define UI for application that draws a histogram
+ui <- fluidPage(
+   
+   # Application title
+   titlePanel("Scatterplots"),
+   
+   
+   sidebarLayout(
+      sidebarPanel(
+        selectInput("variable1","Variable 1 (x):", names(DataAnalysis[,-c("CalendarDate")])),
+        selectInput("variable2","Variable 2 (y):", names(DataAnalysis[,-c("CalendarDate")]), selected = "NO2_Mean"),
+        dateInput("start_date",
+                  "Start date",
+                  min = '2011-01-01',
+                  max = '2016-12-31',
+                  value = '2011-01-01'),
+        dateInput("end_date",
+                  "End Date",
+                  min = '2011-01-01',
+                  max = '2016-12-31',
+                  value = '2016-12-31')
+        
+      ),
+      
+      # Show a plot of the generated distribution
+      mainPanel(
+         plotOutput("distPlot")
+      )
+   )
+)
+
+# Define server logic required to draw a histogram
+server <- function(input, output) {
+   
+   output$distPlot <- renderPlot({
+     f <- paste(input$variable2, "~", input$variable1)
+     reg <- lm(f, data=DataAnalysis)
+     coeff=coefficients(reg)
+     
+     ggplot(DataAnalysis[CalendarDate >= input$start_date & CalendarDate <= input$end_date], aes_string(x=input$variable1, y=input$variable2)) + geom_point(color="turquoise3") + geom_abline(intercept=coeff[1],slope=coeff[2],color="darkorchid3", size=1.5 ) +
+       ggtitle("Scatter Plot Between Pollutants") +
+       theme_classic() +
+       geom_smooth()
+       
+   })
+}
+
+# Run the application 
+shinyApp(ui = ui, server = server)
+
+```
+
+The below interactive graphs plot the time series distribution of each and every variable.
+The end user has the flexibility of choosing the pollutants for which they want the graph to be
+distributed.
+
+```{r}
+
+library(shiny)
+
+
+ui <- fluidPage(
+   
+   # Application title
+   titlePanel("Madrid Pollution Data Time Series"),
+   sidebarLayout(
+     sidebarPanel(
+       
+       checkboxGroupInput("variables", "Variables to show:",
+                                    names(DataAnalysis[,-c("CalendarDate")])),
+        dateInput("start_date",
+               "Start date",
+               min = '2011-01-01',
+               max = '2016-12-31',
+               value = '2011-01-01'),
+        dateInput("end_date",
+               "End Date",
+               min = '2011-01-01',
+               max = '2016-12-31',
+               value = '2016-12-31')),
+      
+     
+      mainPanel(
+         plotOutput("graph")
+      )
+   )
+)
+
+# Define server logic required to draw a histogram
+server <- function(input, output) {
+  
+   output$graph <- renderPlot({
+     
+      DataAnalysisScaled <- DataAnalysis
+      #x <- scale(DataAnalysisScaled[, -c(1)])
+     
+      #DataAnalysisScaled[, -c(1)] <- x
+      #DataAnalysisScaled <- as.data.table(DataAnalysisScaled)
+      dt_melt <- melt.data.table(DataAnalysisScaled, id.vars="CalendarDate")
+      #factors <- levels(dt_melt[,variable])
+      
+      ggplot(dt_melt[CalendarDate >= input$start_date & CalendarDate <= 
+                       input$end_date &variable %in% input$variables, ],
+             aes(x=CalendarDate,y=value,group=variable,colour = variable)) + 
+     geom_line() +
+      theme_classic()+
+      geom_jitter() +
+      ggtitle("Time Series Plot of Variables Over Years")
+      
+   })
+}
+
+# Run the application 
+shinyApp(ui = ui, server = server)
+
+```
+
+#####################################################################################################
+## Regression Analysis
+####################################################################################################
+
+Creating functions for doing the following analysis :-
+1. Outlier Removal
+2. Error evaluation function
+3. Residual Analysis 
+
+```{r}
+
+library(dplyr)
+library(tidyr)
+library(purrr)
+
+OutlierReplacement <- function(dataframe){
+  dataframe %>%          
+    map_if(is.numeric, ~ replace(.x, .x %in% boxplot.stats(.x)$out, NA)) %>%
+    bind_cols 
+  
+}
+
+
+MAE<-function(real, predicted){
+  return(round(mean(abs(real-predicted))))
+}
+
+ResAnalysis<-function(model){
+  
+  par(mfrow=c(2,2))
+  # 1. line plot
+  plot(model$residuals, type='l', main='Model Residuals'); grid()
+  
+  # 2. fitted Vs residuals plot
+  plot(fitted(model),model$residuals,  main='Fitted Vs Residuals'); grid()
+  
+  # 3. histogram
+  norm_test<-shapiro.test(model$residuals)
+  hist(model$residuals,  main='Histogram', xlab=paste0('p-Value = ', norm_test$p.value)); grid()
+  
+  # 4. boxplot
+  boxplot(model$residuals, main='Boxplot'); grid()
+  
+}
+
+```
+
+Create the training model and test the data set.
+85% of the data set is our training data and the other 15% will be the testing data
+
+```{r}
+
+set.seed(6407)
+TrainData =DataAnalysis[sample(nrow(DataAnalysis), 
+                               floor(nrow(DataAnalysis)*0.85)),!c("CalendarDate")]
+TestData = setdiff(DataAnalysis[,!c("CalendarDate")] , TrainData)
+
+```
+
+Running linear regression on the trained data set.
+
+```{r}
+
+Model_1<-lm(NO2_Mean~SO2_Mean+O3_Mean+PM2.5_Mean+CO_Mean+WindSpeed_Mean+Humidity, 
+            data=TrainData)
+summary(Model_1)
+ResAnalysis(Model_1)
+
+scale(Model_1$coefficients)
+
+```
+
+The final model for predicting the Mean NO2 in the atmosphere is the following one with 6 variables (all the variables are in mean values):
+'NO2=34.5 + 0.80*SO2 + 0.42*PM2.5+ 58.40*CO - 0.24*O3 - 0.48 * WindSpeed - 0.17*Humidity'
+
+The biggest contribution in the increase of the NO2 in the atmosphere is made by the CO, while CO is also the most important factor, if we check the scaled coefficients.
+The selected variables explain the model's variance at 87.6% as shown by the R-squared.
+
+The variables were selected initially after implementation of the stepwise method and then through the correlation matrix, we removed manually some other variables in order to achieve normality in the residuals, small error while trying not to lose the really good R-squared metric.
+This model does not break any of the assumptions regarding the regression analysis while still producing valid results.
+
+Insights :
+
+As Windspeed and Humidity increase it seems, the concentration of NO2 in the air decreases.
+
+
+
+Check the fit of the mdoel
+
+```{r}
+
+Fit_1<-Model_1$fitted.values
+MAE_Training_1<-MAE(TrainData$NO2_Mean, Fit_1)
+MAE_Training_1
+
+par(mfrow=c(1,1))
+plot(Fit_1,TrainData$NO2_Mean); grid()
+plot(TrainData$NO2_Mean, type='l', xlab='Train Sample', ylab = "Train Data (NO2_Mean)", 
+     main=paste0('Mean Absolute Error (Train Data) ')); grid()
+lines(Fit_1, col='red')
+legend(800,108,legend = c("Actual" , "Predicted"),col = c("black", "red"), lty=c(1,1), cex = 0.8)
+
+```
+
+
+Test : Predict the new data
+
+```{r}
+
+# test: predictions for new data
+Pred_1<-predict(Model_1, newdata = TestData)
+MAE_Testing_1<-MAE(TestData$NO2_Mean, Pred_1)
+MAE_Testing_1
+
+par(mfrow=c(1,1))
+plot(Pred_1,TestData$NO2_Mean); grid()
+plot(TestData$NO2_Mean, type='l', xlab='Test Sample', ylab= "Test Data (NO2_Mean)",
+    
+     main=paste0('Mean Absolute Error (Test Data) ')); grid()
+lines(Pred_1, col='red')
+legend(130,105,legend = c("Actual" , "Predicted"),col = c("black", "red"), lty=c(1,1), cex = 0.8)
+
+```
+
+Residual Analysis
+
+```{r}
+
+Residual_1<-Model_1$residuals
+
+summary(Residual_1)
+sd(Residual_1)
+par(mfrow=c(2,2))
+plot(Residual_1, type='p')
+hist(Residual_1)
+boxplot(Residual_1); grid()
+qqnorm(Residual_1)
+shapiro.test(Residual_1)
+
+```
+
+Running the same Linear Regression without the Outliers.
+The estimation after removing outliers is not as accurate as running with the entire dataset.
+
+```{r}
+#B= as.data.table(DataAnalysis[,c("CalendarDate","Precipitation")])
+#A= as.data.table(outlierreplacement(DataAnalysis[,!c("Precipitation")]))
+#C = merge(x= A, y = B, by = "CalendarDate")
+# C= na.omit(C)
+
+#Train and Test data split
+
+# Train_index2<-sample(nrow(C), floor(nrow(C)*0.85))
+
+# train_data2<-C[train_index2]
+# test_data2<-C[-train_index2]
+
+# #model 3
+#model_2<-lm(NO2_Mean~NO_Mean+SO2_Mean+O3_Mean+PM_10_Mean+CO_Mean+WindSpeed_Mean+Humidity, #data=train_data2)
+#summary(model_2)
+# scale(model_2$coefficients)
+
+#res_analysis<-function(model){
+  
+#  par(mfrow=c(2,2))
+  # 1. line plot
+#  plot(model$residuals, type='l', main='Model Residuals'); grid()
+  
+  # 2. fitted Vs residuals plot
+#  plot(fitted(model),model$residuals,  main='Fitted Vs Residuals'); grid()
+  
+  # 3. histogram
+#  norm_test<-shapiro.test(model$residuals)
+#  hist(model$residuals,  main='Histogram', xlab=paste0('p-Value = ', norm_test$p.value)); grid()
+  
+  # 4. boxplot
+#  boxplot(model$residuals, main='Boxplot'); grid()
+  
+#}
+
+#res_analysis(model_2)
+
+
+# fitted values and predictions for test data:
+
+
+# train:fit of the model
+
+#fit_2<-model_2$fitted.values
+#mae_training2<-mae(train_data2$NO2_Mean, fit_2)
+#mae_training2
+
+
+#par(mfrow=c(1,1))
+#plot(fit_2,train_data2$NO2_Mean); grid()
+#plot(train_data2$NO2_Mean, type='l', xlab='train sample', ylab= "Train Data (NO2_Mean)",
+#     main=paste0('Mean Absolute Error (Train Data) ')); grid()
+#lines(fit_2, col='red')
+
+
+# test: predictions for new data
+#pred_2<-predict(model_2, newdata = test_data2)
+#mae_testing2<-MAE(test_data2$NO2_Mean, pred_2)
+#mae_testing2
+
+#par(mfrow=c(1,1))
+#plot(pred_2,test_data2$SalePrice); grid()
+#plot(test_data2$NO2_Mean, type='l', xlab='test sample', ylab= "Test Data (NO2_Mean)",
+#     main=paste0('Mean Absolute Error (Test Data) '')); grid()
+#lines(pred_2, col='red')
+
+# multiple regression
+#resids2<-model_2$residuals
+#summary(resids2)
+#sd(resids2)
+# plot 1
+#par(mfrow=c(2,2))
+#plot(resids2, type='o', xlab='',ylab='',xaxt='n',lwd=2,pch=19, main='Model Residuals'); grid()
+# plot 2 
+#hist(resids2)
+# plot 3 
+#boxplot(resids2); grid()
+# plot 4 
+#qqnorm(resids2)
+#shapiro.test(resids2)
+#pred_3<-predict(model_2, newdata = a)
+#mae_testing3<-mae(a$NO2_Mean, pred_3)
+#mae_testing3
+#plot(a$NO2_Mean)
+#lines(pred_3,col='red')
+
+```
